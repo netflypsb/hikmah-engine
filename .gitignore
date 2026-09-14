@@ -78,3 +78,5 @@ tmp_reads/
 tmp_migration/
 batch*.txt
 *.tmp
+graph/
+wiki
