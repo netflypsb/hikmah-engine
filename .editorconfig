@@ -1,0 +1,10 @@
+root = true
+
+# Force LF for all files — declare it so editors/tools do not insert CRLF on Windows.
+# Where git's .gitattributes (eol=lf) is the commit-time normalization safety net,
+# this makes the editor save as LF from the start (applied by .editorconfig-aware
+# tools such as VS Code).
+[*]
+end_of_line = lf
+charset = utf-8
+insert_final_newline = true

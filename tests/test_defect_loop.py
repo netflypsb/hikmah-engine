@@ -1,0 +1,340 @@
+"""Regression tests for the automated defect-to-guideline improvement loop infra (log_defect + mine_failures).
+
+Guards the deterministic parts of corpus ingestion (parse / validate /
+append — cluster slug, decision and stage enums, transition audit fields)
+and clustering (cluster grouping with legacy-mechanism fallback,
+recurring-after-fix priority, addressable=false separation, watermark
+window, --pages listing).
+"""
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+
+import log_defect as ld  # noqa: E402
+import mine_failures as mfa  # noqa: E402
+
+
+# --- log_defect: parse ---
+
+def test_parse_accepts_array_and_jsonl():
+    arr = ld.parse_records('[{"kind":"defect"},{"kind":"transition"}]')
+    jsonl = ld.parse_records('{"kind":"defect"}\n{"kind":"transition"}')
+    assert len(arr) == 2 and len(jsonl) == 2
+
+
+def test_parse_empty_is_empty():
+    assert ld.parse_records("   ") == []
+
+
+def test_parse_tolerates_utf8_bom():
+    """PowerShell prepends a BOM when piping to a native command, so the documented
+    `... | python tools/log_defect.py` usage arrives with one even from a BOM-less
+    file — and `.strip()` does not remove it, so json failed at char 0."""
+    assert ld.parse_records('﻿[{"kind":"defect"}]') == [{"kind": "defect"}]
+    assert ld.parse_records('﻿{"kind":"defect"}') == [{"kind": "defect"}]
+
+
+# --- log_defect: validate ---
+
+def _valid_defect(**over):
+    rec = {"kind": "defect", "target": "t.md", "cluster": "density-shortfall",
+           "caught_at": "lint:source"}
+    rec.update(over)
+    return rec
+
+
+def _valid_transition(**over):
+    rec = {"kind": "transition", "cluster": "density-shortfall@desk",
+           "surface": "layers/overview.md", "decision": "accept",
+           "rationale": "held-in improved, no slice regressed",
+           "model": "sonnet-5", "treatment": "prevent"}
+    rec.update(over)
+    return rec
+
+
+def test_validate_rejects_bad_kind_and_missing_keys():
+    assert ld.validate({"kind": "nope"})
+    assert ld.validate({"kind": "defect", "target": "x"})  # cluster / caught_at missing
+    assert ld.validate(_valid_defect()) is None
+    assert ld.validate(_valid_transition()) is None
+
+
+def test_validate_enforces_cluster_slug():
+    assert ld.validate(_valid_defect(cluster="Not A Slug"))
+    assert ld.validate(_valid_transition(cluster="UPPER@desk"))
+    assert ld.validate(_valid_transition(cluster="ok-slug@desk")) is None
+
+
+def test_validate_enforces_decision_enum():
+    assert ld.validate(_valid_transition(decision="approved"))
+    for d in ld.DECISIONS:
+        assert ld.validate(_valid_transition(decision=d)) is None
+
+
+def test_validate_enforces_caught_at_stage():
+    assert ld.validate(_valid_defect(caught_at="vibes:only"))
+    for s in ld.STAGES:
+        assert ld.validate(_valid_defect(caught_at=f"{s}:detail")) is None
+    # Pinned by name, not just covered by the loop above: `audit` was absent for
+    # long enough that the audit runbook's yield was unfilable and the gap read
+    # as a discipline problem. Dropping it again would keep this test green.
+    assert "audit" in ld.STAGES
+
+
+def test_validate_requires_transition_audit_fields():
+    assert ld.validate(_valid_transition(rationale=""))
+    assert ld.validate(_valid_transition(model=""))
+
+
+def test_append_fills_date_and_rejects_invalid(tmp_path):
+    log = tmp_path / "_defect-log.jsonl"
+    n = ld.append_records([_valid_defect()], path=log)
+    assert n == 1
+    rec = json.loads(log.read_text(encoding="utf-8").strip())
+    assert rec["date"]  # auto-filled
+    try:
+        ld.append_records([{"kind": "defect"}], path=log)
+        assert False, "invalid record passed validation"
+    except ValueError:
+        pass
+
+
+def test_validate_requires_treatment_on_accept():
+    """Without it `mine_failures` reads the accept as non-preventive and quietly drops
+    the cluster out of the recurrence tier — so the judgment is forced at ingest."""
+    rec = _valid_transition()
+    del rec["treatment"]
+    assert ld.validate(rec)
+    assert ld.validate(_valid_transition(treatment="added a checker"))   # free text refused
+    for tr in ("prevent", "detect", "both", "remediate"):
+        assert ld.validate(_valid_transition(treatment=tr)) is None
+    # reject and defer put nothing in place, so nothing is required of them
+    r = _valid_transition(decision="reject")
+    del r["treatment"]
+    assert ld.validate(r) is None
+
+
+def test_validate_enforces_severity_vocabulary():
+    assert ld.validate(_valid_defect(severity="Medium"))
+    assert ld.validate(_valid_defect(severity="med"))
+    for s in ("critical", "high", "medium", "low"):
+        assert ld.validate(_valid_defect(severity=s)) is None
+
+
+def test_validate_enforces_layer_vocabulary():
+    """Writing the content type into the layer slot was the real drift path, and the
+    two tokens this repo used before (`guideline`/`meta`) each carried both prose and
+    code — so the aggregate read a field that meant nothing."""
+    assert ld.validate(_valid_defect(layer="source"))
+    assert ld.validate(_valid_defect(layer="guideline"))
+    for lay in ("L2-1", "L2-2", "L2-3", "L2-4", "meta", "tools"):
+        assert ld.validate(_valid_defect(layer=lay)) is None
+
+
+def test_validate_rejects_a_non_boolean_addressable():
+    """A string passes the `is False` comparison, so "no" leaks in as addressable."""
+    assert ld.validate(_valid_defect(addressable="yes"))
+    assert ld.validate(_valid_defect(addressable="no"))
+    for b in (True, False):
+        assert ld.validate(_valid_defect(addressable=b)) is None
+
+
+def test_validate_enforces_model_vocabulary():
+    """The self-evolution workflow hangs a longitudinal comparison on this field, and free
+    text made it impossible — one generation split across two notations, and whole
+    sentences describing the apparatus sitting where a join key belongs."""
+    assert ld.validate(_valid_transition(model="claude-opus-5[1m]"))
+    assert ld.validate(_valid_transition(model="opus-5 (author), general-purpose (reviewer)"))
+    for m in ld.MODELS:
+        assert ld.validate(_valid_transition(model=m)) is None
+
+
+
+# --- mine_failures: cluster + priority ---
+
+def _defect(cluster, caught_at="desk:density", target="t.md", date="2026-06-25", addressable=True):
+    return {"kind": "defect", "cluster": cluster, "caught_at": caught_at,
+            "target": target, "date": date, "addressable": addressable}
+
+
+def test_recurring_after_fix_ranks_first():
+    records = [
+        _defect("translationese"), _defect("translationese"), _defect("translationese"),  # support 3, untreated
+        _defect("density-shortfall", date="2026-06-25"),                   # support 1, dated after the fix
+        _valid_transition(date="2026-06-01"),
+    ]
+    a = mfa.analyze(records, since=None)
+    # recurring-after-fix (density-shortfall) ranks ahead of translationese despite lower support
+    assert a["ranked"][0][0] == "density-shortfall"
+    assert "density-shortfall" in a["fixed"]
+
+
+def test_legacy_mechanism_records_still_group():
+    # Pre-schema records carry only free-text `mechanism` — grouping falls back.
+    records = [{"kind": "defect", "mechanism": "translationese",
+                "caught_at": "desk:density", "target": "t.md", "date": "2026-06-25"}]
+    a = mfa.analyze(records, since=None)
+    assert a["ranked"][0][0] == "translationese"
+
+
+def test_addressable_false_is_separated():
+    records = [_defect("source-thin", addressable=False), _defect("translationese")]
+    a = mfa.analyze(records, since=None)
+    assert "source-thin" in a["blocked"]
+    assert all(m != "source-thin" for m, _ in a["ranked"])
+
+
+def test_since_window_excludes_old():
+    records = [_defect("old-one", date="2026-01-01"), _defect("recent-one", date="2026-06-25")]
+    a = mfa.analyze(records, since="2026-03-01")
+    mechs = {m for m, _ in a["ranked"]}
+    assert mechs == {"recent-one"}
+
+
+def test_pages_lists_all_targets():
+    records = [_defect("dense", target=f"p{i}.md") for i in range(5)]
+    capped = mfa.analyze(records, since=None)
+    full = mfa.analyze(records, since=None, pages=True)
+    assert len(dict(capped["ranked"])["dense"]["targets"]) == 3
+    assert len(dict(full["ranked"])["dense"]["targets"]) == 5
+
+
+def test_checkpoint_records_recurrence(tmp_path, monkeypatch):
+    monkeypatch.setattr(mfa, "WATERMARK_PATH", tmp_path / "wm.json")
+    entry = mfa.write_checkpoint("2026-06-25", None, "c1",
+                                 {"density-shortfall": 1}, ["density-shortfall"])
+    assert entry["recurring_after_fix"] == ["density-shortfall"]
+    assert mfa.read_watermark() == "2026-06-25"
+
+
+# --- mine_failures: the recurrence tier splits on treatment ---
+# Counting every accept as a treatment pins a cluster at the top of the priority table
+# for as long as its checker keeps working. Only prevention earns the tier.
+
+def _accept(cluster, treatment, surface="tools/_lint/source.py", date="2026-06-01"):
+    return {"kind": "transition", "cluster": cluster, "surface": surface, "date": date,
+            "decision": "accept", "rationale": "r", "model": "opus-5", "treatment": treatment}
+
+
+def test_detector_only_accept_leaves_the_recurrence_tier():
+    records = [
+        _defect("detector-fixed"), _defect("detector-fixed"), _defect("detector-fixed"),
+        _defect("prevention-fixed", date="2026-06-25"),  # after its treatment
+        _accept("detector-fixed", "detect"),
+        _accept("prevention-fixed", "prevent", ".claude/layers/hub.md", date="2026-06-01"),
+    ]
+    a = mfa.analyze(records, since=None)
+    assert a["non_preventive"] == {"detector-fixed"}
+    assert a["recurred"] == {"prevention-fixed"}
+    # support 1 beats support 3 — prevention-after-recurrence outranks a working checker
+    assert a["ranked"][0][0] == "prevention-fixed"
+
+
+def test_one_preventive_accept_leaves_the_non_preventive_set():
+    # A preventive accept alongside a detector accept takes the cluster out of
+    # `non_preventive` — but prevention existing is not recurrence, so the tier
+    # stays empty until a defect is dated after it.
+    records = [_defect("mixed", date="2026-05-01"),
+               _accept("mixed", "detect"),
+               _accept("mixed", "prevent", ".claude/agents/reporter.md", date="2026-06-01")]
+    a = mfa.analyze(records, since=None)
+    assert a["non_preventive"] == set()
+    assert "mixed" in a["prevented"]
+    assert a["recurred"] == set()
+
+
+def test_defect_predating_its_treatment_is_not_a_recurrence():
+    # The tier read as "recurrence after preventive treatment" while testing only
+    # that a preventive accept existed, so a cluster whose defects all predate its
+    # fix ranked as a treatment failure. On the corpus at the time, 12 clusters
+    # held the tier and 3 had actually recurred.
+    before = [_defect("early", date="2026-05-01"), _accept("early", "prevent", date="2026-06-01")]
+    after = [_defect("late", date="2026-07-01"), _accept("late", "prevent", date="2026-06-01")]
+    assert mfa.analyze(before, since=None)["recurred"] == set()
+    assert mfa.analyze(after, since=None)["recurred"] == {"late"}
+    # Treated twice: the boundary is the treatment standing now, so a defect the
+    # second one answered does not keep the cluster in the tier.
+    retreated = [_defect("twice", date="2026-06-15"),
+                 _accept("twice", "prevent", date="2026-06-01"),
+                 _accept("twice", "prevent", date="2026-07-01")]
+    assert mfa.analyze(retreated, since=None)["recurred"] == set()
+
+
+# --- mine_failures: the closed-verdict ratchet ---
+# A rejected or deferred axis stood up as "top priority" every cycle because the verdict
+# lived in the ledger and never reached the screen. Only the latest verdict counts.
+
+def _transition(cluster, decision, date, surface="s", **over):
+    rec = {"kind": "transition", "cluster": cluster, "surface": surface,
+           "decision": decision, "rationale": "r", "model": "opus-5", "date": date}
+    rec.update(over)
+    return rec
+
+
+def test_unjudged_ranks_above_judged_recurrence():
+    """A judged cluster sinks below every unjudged one however large its support — it is
+    not this cycle's review set. Prevention-after-recurrence does not rescue it."""
+    records = [
+        _defect("judged-big"), _defect("judged-big"), _defect("judged-big"),
+        _defect("fresh-small"),
+        _transition("judged-big", "accept", "2026-06-01", treatment="prevent"),
+        _transition("judged-big", "reject", "2026-07-01"),
+    ]
+    a = mfa.analyze(records, since=None)
+    assert a["ranked"][0][0] == "fresh-small"
+    assert a["closed"] == {"judged-big"}
+
+
+def test_latest_decision_wins_over_earlier_verdict():
+    """Picking any verdict from the whole history hides a later one — this corpus holds
+    both directions: an accept followed by a reject, and a defer followed by an accept."""
+    reopened = [_transition("c-1", "defer", "2026-08-23"),
+                _transition("c-1", "accept", "2026-08-27", treatment="prevent")]
+    closed = [_transition("c-2", "accept", "2026-08-22", treatment="prevent"),
+              _transition("c-2", "reject", "2026-08-27")]
+    assert mfa.latest_decisions(reopened)["c-1"]["decision"] == "accept"
+    assert mfa.analyze(reopened, since=None)["closed"] == set()
+    assert mfa.analyze(closed, since=None)["closed"] == {"c-2"}
+
+
+def test_verdict_line_carries_surface_and_reopen_condition():
+    r = _transition("c-1", "reject", "2026-08-27", surface="a deterministic check — axis closed",
+                    note="Re-open when the corpus grows the structure the rule regulates")
+    lines = mfa.verdict_lines(r)
+    assert "⊘rejected" in lines[0] and "axis closed" in lines[0] and "2026-08-27" in lines[0]
+    assert "Re-open when" in lines[1] and "structure the rule regulates" in lines[1]
+    # No condition literal → the surface line alone (most of this ledger's verdicts).
+    assert len(mfa.verdict_lines(_transition("c-2", "defer", "2026-08-27"))) == 1
+
+
+# --- lint meta schema: the ledger gate ---
+
+def test_lint_meta_catches_ledger_bypass(tmp_path, monkeypatch):
+    """`lint meta schema` catches out-of-vocabulary records that bypassed the entrance.
+
+    Distinct from validating `log_defect.validate()` directly: this guards the
+    *lint path*, which is what fires at the cycle gate. A writer reaching the
+    ledger through Write, Edit or a bash append never touches `log_defect.py`,
+    and the Write|Edit hook guard cannot see the bash form at all. Asserted on
+    the returned issue count, not on message text.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools" / "_lint"))
+    import meta_schema
+
+    log = tmp_path / "_defect-log.jsonl"
+    good = {"kind": "defect", "date": "2026-09-11", "layer": "tools", "target": "t.py",
+            "cluster": "x", "caught_at": "lint:meta", "mechanism": "m",
+            "severity": "high", "addressable": True}
+    log.write_text(json.dumps(good, ensure_ascii=False) + "\n", encoding="utf-8")
+    monkeypatch.setattr(meta_schema.log_defect, "LOG_PATH", log)
+    assert meta_schema._check_defect_ledger() == []
+
+    bad = dict(good, layer="code")          # a value outside LAYERS
+    log.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in (good, bad)),
+                   encoding="utf-8")
+    assert len(meta_schema._check_defect_ledger()) == 1
+
+    log.write_text("{not json}\n", encoding="utf-8")   # a broken line is not silence either
+    assert len(meta_schema._check_defect_ledger()) == 1

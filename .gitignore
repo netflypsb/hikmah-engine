@@ -1,0 +1,80 @@
+# Original sources (personal scraps) — keep only the .gitkeep
+raw/*/
+
+# Claude Code local settings (contain machine paths)
+# settings.json is tracked (team-wide config such as hooks).
+# settings.local.json is gitignored (personal trust model, MCP, and other overrides).
+.claude/settings.local.json
+# Personal working memory: contents ignored. The folder is kept by a tracked
+# .gitkeep — CLAUDE.md names this path and lint meta requires it on disk.
+.claude/memory/*
+!.claude/memory/.gitkeep
+.mcp.json
+
+# Obsidian local settings
+.obsidian/
+
+# Build artifacts (regenerable)
+# _graph.json, graph.html, and _clusters.json ARE tracked (they stay in sync with
+# wiki state — graph.html loads _graph.json/_clusters.json directly via fetch).
+# _pages.json is the reading-pane body bundle and is large (~9MB), so it is untracked —
+# regenerate after clone with `python tools/build.py clusters` (graph.html lazy-fetches it on click).
+# _health-log.jsonl is appended on every lint run (a trend log); committing it only
+# adds diff noise, so it is kept per local environment.
+graph/_pages.json
+graph/_health-log.jsonl
+# lint-report.md is a human-readable snapshot regenerated on every lint run — like
+# _health-log.jsonl it would only add diff noise, so it is untracked. /wiki-lint writes it to the repo root.
+lint-report.md
+
+# Hosting deploy staging — export.py assembles graph.html plus
+# <slug>-{graph,clusters,pages}.json under _site/ with obscured filenames for Cloudflare Pages. A byproduct, so untracked.
+_site/
+
+# raw-dependent tools (internal, `_` prefix)
+tools/_categorize_raindrop.py
+tools/_raindrop_categories.json
+
+# Review-cycle watermarks — these carry operator working notes in the operator's
+# own language, so they stay out of the public mirror. The defect corpus
+# (tools/_defect-log.jsonl) is NOT ignored: it holds the self-evolution ledger
+# (kind:transition — which guideline changed, what was measured, accept/reject)
+# and the longitudinal defect history mine_failures.py needs to compute recurrence,
+# so a fresh clone must start with it rather than blind. Because that file is
+# public, its free-text fields (mechanism · rationale · note) must stay technical
+# English — no operator notes, no private-corpus references.
+# The regression_set.json canary IS committed.
+tools/_feedback-review.json
+tools/_failure-review.json
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Operator-local handoff note (must not be committed to the public mirror)
+HANDOFF.md
+
+# Operator-local GitHub Wiki export — a personal project-management convenience
+# (converter script + its flattened, frontmatter-stripped output), not part of
+# the published corpus. Regenerate anytime with the script below.
+# Only this sub-folder is ignored: the rest of wiki-export/ IS tracked, because
+# README tells the reader to push exactly those files to GitHub and connect them
+# as Claude.ai Project Knowledge — a mirror that documents the artifact but ships
+# none of it leaves them nothing to look at. Nothing keeps it fresh automatically
+# (export is not a build.py phase and no lint checks staleness), so regenerate
+# with `python tools/export.py` when the corpus changes, at the latest before a
+# release.
+tools/export_github_wiki.py
+wiki-export/github-wiki/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp files
+tmp_reads/
+tmp_migration/
+batch*.txt
+*.tmp

@@ -1,0 +1,16 @@
+# Repo is stored LF-normalized (git add converts CRLF->LF). Code and scripts (.sh) need LF to be correct.
+#
+# EOL phantom note: some .md files were committed with CRLF in the past, so CRLF lingers in the index.
+# When such a file is touched (mtime changes) git status briefly marks it M, but a full
+# status scan / `git restore` resolves it automatically; since it is eol-only the git diff is empty and
+# git add re-normalizes to LF, so it is never wrongly committed (cosmetic only). Obsidian is LF-native,
+# so it is not the cause. To eliminate it entirely, run a one-time
+# `git add --renormalize . && git commit` to unify the whole index to LF (a bulk eol-only commit).
+*.md text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+# .jsonl is NOT matched by *.json — without its own rule the defect ledger
+# (_defect-log.jsonl) gets committed with CRLF and the whole file shows as rewritten.
+*.jsonl text eol=lf
+*.sh text eol=lf
+*.html text eol=lf
