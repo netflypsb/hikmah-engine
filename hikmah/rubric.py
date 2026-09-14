@@ -151,14 +151,17 @@ def check_citation_completeness(frontmatter: dict, content: str) -> RubricResult
     # Generic prose containing "weak" ("no matter how weak or disadvantaged...")
     # must NOT trigger this check.
     weak_kw_re = re.compile(r"da'?if|fabricated|mawdoo|weak", re.IGNORECASE)
-    hadith_ctx_re = re.compile(r"hadith|narration|narrated|isnad|sunnah|graded|authenticated|report[s]?\b", re.IGNORECASE)
+    # Weak keyword must DIRECTLY modify hadith vocabulary: "weak hadith",
+    # "da'if narration", "weak according to..." — not "a weak opinion" whose
+    # surrounding sentence happens to mention a narration.
+    hadith_direct_re = re.compile(
+        r"(?:da'?if|weak|fabricated|mawdoo)[\s\-]+(?:hadith|narration|report|isnad|attribution)"
+        r"|(?:hadith|narration|isnad)[\s\-]+(?:is|is)\s+(?:da'?if|weak|fabricated)"
+        r"|(?:graded|classified|declared)\s+(?:da'?if|weak|fabricated|mawdoo)",
+        re.IGNORECASE,
+    )
 
-    weak_in_hadith_context = False
-    for m in weak_kw_re.finditer(body):
-        window = body[max(0, m.start() - 120): m.end() + 120]
-        if hadith_ctx_re.search(window):
-            weak_in_hadith_context = True
-            break
+    weak_in_hadith_context = bool(hadith_direct_re.search(body))
 
     if weak_in_hadith_context and not re.search(r"da'?if.*?(?:labelled|labeled|noted|flagged|explicit|graded|classified)|weak.*?(?:labelled|labeled|noted|flagged|explicit)", body, re.IGNORECASE):
         issues.append("  Weak/da'if hadith referenced but not explicitly labelled per source tier rules")
