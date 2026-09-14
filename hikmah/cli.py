@@ -7,8 +7,11 @@ Usage:
     python -m hikmah graph                 # Rebuild knowledge graph
     python -m hikmah query <question>      # Search the wiki
     python -m hikmah cascade <page>        # Cascading updates
-    python -m hikmah discover <seed>        # Associative discovery
-    python -m hikmah manifest               # Update MANIFEST.json
+    python -m hikmah discover <seed>       # Associative discovery
+    python -m hikmah manifest              # Update MANIFEST.json
+    python -m hikmah rubric <file>         # Islamic scholarly validation
+    python -m hikmah rubric --all          # Validate all pages
+    python -m hikmah extract <pdf>         # Extract+clean text from PDF
 """
 import sys
 import os
@@ -58,7 +61,10 @@ def main():
         
     elif command == "rubric":
         _run_rubric(args)
-        
+
+    elif command == "extract":
+        _run_extract(args)
+
     else:
         print(f"Unknown command: {command}")
         print(__doc__)
@@ -117,6 +123,67 @@ def _run_rubric(args):
             print(f"  [{status}] {r.check_name}: {r.message}")
             for d in r.details:
                 print(f"         {d}")
+
+
+def _run_extract(args):
+    """Extract and clean text from a PDF source."""
+    if not args:
+        print("[hikmah] Usage: python -m hikmah extract <pdf-file> [--source NAME] [--ocr] [--out DIR]")
+        print("  Extract a PDF:      python -m hikmah extract sources/qaradawi/pdfs/halal-haram.pdf --source qaradawi/halal-haram")
+        print("  Force OCR:           python -m hikmah extract book.pdf --source mybook --ocr")
+        print("  Write chapter files: python -m hikmah extract book.pdf --source mybook --out extracted/mybook/")
+        return
+
+    from hikmah.extract import extract_and_clean
+
+    pdf_path = args[0]
+    source_name = "unknown"
+    use_ocr = False
+    output_dir = None
+
+    i = 1
+    while i < len(args):
+        if args[i] == "--source" and i + 1 < len(args):
+            source_name = args[i + 1]
+            i += 2
+        elif args[i] == "--ocr":
+            use_ocr = True
+            i += 1
+        elif args[i] == "--out" and i + 1 < len(args):
+            output_dir = args[i + 1]
+            i += 2
+        else:
+            i += 1
+
+    if not os.path.exists(pdf_path):
+        print(f"[hikmah] PDF not found: {pdf_path}")
+        return
+
+    print(f"[hikmah] Extracting: {pdf_path}")
+    print(f"  Source: {source_name}")
+    print(f"  Method: {'OCR (forced)' if use_ocr else 'auto (pdftotext → OCR fallback)'}")
+
+    result = extract_and_clean(
+        pdf_path=pdf_path,
+        source_name=source_name,
+        use_ocr=use_ocr,
+        output_dir=output_dir,
+    )
+
+    print(f"  Method used: {result.method}")
+    print(f"  Pages: {result.total_pages}")
+    print(f"  Characters: {result.total_chars:,}")
+    print(f"  Chapters detected: {len(result.chapter_boundaries)}")
+    print(f"  SHA-256: {result.sha256[:16]}...")
+
+    if result.chapter_boundaries:
+        print(f"  Chapter list:")
+        for b in result.chapter_boundaries:
+            title = b.title or "(no title)"
+            print(f"    {b.num:3d}. {title}")
+
+    if output_dir:
+        print(f"  Chapter files written to: {output_dir}/")
 
 
 def _generate_manifest():
