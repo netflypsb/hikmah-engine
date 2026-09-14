@@ -14,6 +14,8 @@ Usage:
     python -m hikmah extract <pdf>         # Extract+clean text from PDF
     python -m hikmah search <query>        # Federated cross-wiki search
     python -m hikmah bridges [--generate]  # Cross-wiki concept bridges
+    python -m hikmah gates                  # Integrated quality gates
+      --out FILE                           #   Write JSON report to file
 """
 import sys
 import os
@@ -86,6 +88,9 @@ def main():
 
     elif command == "bridges":
         _run_bridges(args)
+
+    elif command == "gates":
+        _run_gates(args)
 
     else:
         print(f"Unknown command: {command}")
@@ -311,6 +316,45 @@ def _run_bridges(args):
             with open(path, "w", encoding="utf-8") as f:
                 f.write(md)
             print(f"  Generated: {path}")
+
+
+def _run_gates(args):
+    """Run integrated quality gates across all wiki content."""
+    from hikmah.gates import run_gates
+
+    wiki_dir = os.path.join(os.getcwd(), "wiki")
+    if not os.path.isdir(wiki_dir):
+        print(f"[hikmah] No wiki/ directory found at {os.getcwd()}")
+        return
+
+    output_json = "--json" in args
+    output_file = None
+
+    i = 0
+    while i < len(args):
+        if args[i] == "--out" and i + 1 < len(args):
+            output_file = args[i + 1]
+            i += 2
+        else:
+            i += 1
+
+    print("[hikmah] Running quality gates...")
+    report = run_gates(wiki_dir)
+
+    print()
+    print(report.summary())
+
+    if output_file:
+        import json
+        with open(output_file, "w") as f:
+            json.dump(report.to_json(), f, indent=2, ensure_ascii=False)
+        print(f"\n[hikmah] Full report written to {output_file}")
+
+    # Exit code: 0 if no errors, 1 if any errors
+    if report.errors > 0:
+        print(f"\n[hikmah] {report.errors} ERROR(s) found — content needs attention")
+    else:
+        print(f"\n[hikmah] No errors — all critical gates passed")
 
 
 def _run_extract(args):
