@@ -48,8 +48,8 @@ FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 # Tag extraction from frontmatter
 TAG_RE = re.compile(r"^tags:\s*\[(.*?)\]", re.MULTILINE)
 
-# Title extraction from frontmatter
-TITLE_RE = re.compile(r'^title:\s*["\']?([^"\']+)', re.MULTILINE)
+# Title extraction from frontmatter (single line only)
+TITLE_RE = re.compile(r'^title:\s*["\']?([^\n"\']+)', re.MULTILINE)
 
 # Arabic name pattern for concept bridging
 ARABIC_NAME_RE = re.compile(r"[\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFF]+")

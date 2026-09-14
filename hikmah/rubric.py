@@ -80,39 +80,59 @@ def check_citation_completeness(frontmatter: dict, content: str) -> RubricResult
     - Theological claims: need Quran reference (Surah:N) + hadith reference
     - Fiqh rulings: need source text + madhab position
     - Scholarly quotes: need scholar name + work title
+
+    Keyword scanning is performed on the BODY ONLY (frontmatter tags and
+    wikilink targets are stripped first) so that a page merely TAGGED or
+    LINKED to 'tawhid' is not treated as making an aqeedah claim.
     """
     issues = []
 
-    # Detect theological claims (look for aqeedah-related keywords)
+    # Strip frontmatter so tags like ["tawhid"] don't trigger the check
+    body = content
+    fm_m = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
+    if fm_m:
+        body = content[fm_m.end():]
+
+    # Strip wikilink targets/aliases — links to theme pages are not claims
+    body = re.sub(r"\[\[[^\]]+\]\]", " ", body)
+
+    # Detect theological claims (aqeedah-related keywords in body prose only)
     theological_keywords = ["aqeedah", "aqidah", "tawhid", "shirk", "kufr", "iman"]
-    has_theological = any(kw in content.lower() for kw in theological_keywords)
+    body_lower = body.lower()
+    has_theological = any(kw in body_lower for kw in theological_keywords)
 
     if has_theological:
         fm_surah = frontmatter.get("surah_number")
 
         # Check for Quran reference patterns:
-        # 1. Global reference: SurahName N:M or (N:M) or [N:M]
-        # 2. Surah-scoped: verse markers like **(1)**, (Verse N), Verse N
-        #    (valid when surah_number is in frontmatter — the page IS about that surah)
+        # 1. Global: (2:255), (2: 30-31), [2:255]
+        # 2. Explicit verse markers: (Verse 8), (Verses 1-2), **(1)**
+        # Accept ALL common citation styles: (2:255), bare 2:255, [2:255],
+        # (Verse 8), (Verses 1-2), **(1)**
         quran_ref_patterns = [
             r"(?:Qur'?an|Quran)\s+\d+:\d+",
-            r"\(\d+:\d+\)",
-            r"Surah\s+\w+.*?verse\s+\d+",
+            r"\(\d+:\s*\d+(?:-\d+)?\)",
             r"\[\d+:\d+\]",
+            r"\b\d{1,3}:\d{1,3}\b",                  # bare 6:91 style
+            r"\(Verses?\s+\d+(?:[-–—]\d+)?\)",
+            r"\*\*\(\d+\)\*\*",
+            r"S[ūu]rah\s+\d+",
+            r"Surah\s+\w+.*?verse\s+\d+",
         ]
-        has_quran_ref = any(re.search(p, content, re.IGNORECASE) for p in quran_ref_patterns)
+        has_quran_ref = any(re.search(p, body, re.IGNORECASE) for p in quran_ref_patterns)
 
-        # If no global ref, check for surah-scoped verse references
+        # If no explicit ref, accept surah-scoped bare verse markers
+        # (valid when the page is about a single surah)
         if not has_quran_ref and fm_surah:
             verse_patterns = [
-                r"\*\*\(\d+\)\*\*",      # **(1)** — Fi Zilal style
-                r"\(\d+\)",               # (1) — verse markers
+                r"\*\*\(\d+\)\*\*",
+                r"\(\d+\)",
                 r"Verse\s+\d+",
                 r"verse\s+\d+",
                 r"ayah\s+\d+",
                 r"āyah\s+\d+",
             ]
-            has_quran_ref = any(re.search(p, content, re.IGNORECASE) for p in verse_patterns)
+            has_quran_ref = any(re.search(p, body, re.IGNORECASE) for p in verse_patterns)
 
         if not has_quran_ref:
             issues.append("  Theological claim detected but no Quran reference found (expected Surah:N:M or verse marker pattern)")
@@ -127,9 +147,20 @@ def check_citation_completeness(frontmatter: dict, content: str) -> RubricResult
     ]
     has_hadith_ref = any(re.search(p, content, re.IGNORECASE) for p in hadith_patterns)
 
-    # Check for da'if/fabricated hadith labelling
-    weak_hadith_pattern = re.search(r"da'?if|weak|fabricated|mawdoo", content, re.IGNORECASE)
-    if weak_hadith_pattern and not re.search(r"da'?if.*?(?:labelled|noted|flagged|explicit)|weak.*?(?:labelled|noted|flagged|explicit)", content, re.IGNORECASE):
+    # Check for da'if/fabricated hadith labelling — only in HADITH CONTEXT.
+    # Generic prose containing "weak" ("no matter how weak or disadvantaged...")
+    # must NOT trigger this check.
+    weak_kw_re = re.compile(r"da'?if|fabricated|mawdoo|weak", re.IGNORECASE)
+    hadith_ctx_re = re.compile(r"hadith|narration|narrated|isnad|sunnah|graded|authenticated|report[s]?\b", re.IGNORECASE)
+
+    weak_in_hadith_context = False
+    for m in weak_kw_re.finditer(body):
+        window = body[max(0, m.start() - 120): m.end() + 120]
+        if hadith_ctx_re.search(window):
+            weak_in_hadith_context = True
+            break
+
+    if weak_in_hadith_context and not re.search(r"da'?if.*?(?:labelled|labeled|noted|flagged|explicit|graded|classified)|weak.*?(?:labelled|labeled|noted|flagged|explicit)", body, re.IGNORECASE):
         issues.append("  Weak/da'if hadith referenced but not explicitly labelled per source tier rules")
 
     passed = len(issues) == 0
