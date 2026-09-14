@@ -1,0 +1,209 @@
+{
+  "source": {
+    "bundles": {
+      "scholarly-citation": {
+        "fn": "check_citations",
+        "params": {}
+      }
+    },
+    "roster": {
+      "required": [
+        "g1",
+        "g2",
+        "g4",
+        "c1",
+        "c3",
+        "s1",
+        "l1"
+      ],
+      "optional": []
+    }
+  },
+  "hub": {
+    "bundles": {
+      "encyclopedia-writing": {
+        "fn": "check_encyclopedia",
+        "params": {}
+      }
+    },
+    "roster": {
+      "required": [],
+      "optional": []
+    }
+  },
+  "overview-cluster": {
+    "checks": {
+      "enc.link-density": {
+        "threshold": 0.3,
+        "params": {}
+      },
+      "enc.first-mention": {
+        "threshold": 0,
+        "params": {}
+      },
+      "enc.verdict-restraint": {
+        "threshold": 0,
+        "params": {}
+      },
+      "enc.slug-alias": {
+        "threshold": 0,
+        "params": {
+          "min_len": 10
+        }
+      },
+      "enc.abbr-gloss": {
+        "threshold": 0,
+        "params": {}
+      },
+      "con.numeric-density": {
+        "threshold": 0.1,
+        "params": {
+          "max_per_para": 5
+        }
+      },
+      "cit.grade-meta": {
+        "threshold": 0,
+        "params": {}
+      },
+      "cit.cite-type-meta": {
+        "threshold": 0,
+        "params": {}
+      }
+    },
+    "bundles": {},
+    "roster": {
+      "required": [],
+      "optional": []
+    }
+  },
+  "overview-aggregate": {
+    "checks": {
+      "enc.link-density": {
+        "threshold": 0.3,
+        "params": {}
+      },
+      "enc.first-mention": {
+        "threshold": 0,
+        "params": {}
+      },
+      "cit.grade-meta": {
+        "threshold": 0,
+        "params": {}
+      },
+      "cit.cite-type-meta": {
+        "threshold": 0,
+        "params": {}
+      }
+    },
+    "bundles": {
+      "consulting-writing": {
+        "fn": "check_consulting",
+        "params": {}
+      },
+      "encyclopedia-writing": {
+        "fn": "check_encyclopedia",
+        "params": {}
+      },
+      "journalism-writing": {
+        "fn": "check_journalism",
+        "params": {}
+      }
+    },
+    "roster": {
+      "required": [],
+      "optional": []
+    }
+  },
+  "contradiction-theme": {
+    "checks": {
+      "cit.grade-meta": {
+        "threshold": 2,
+        "params": {}
+      },
+      "cit.cite-type-meta": {
+        "threshold": 2,
+        "params": {}
+      },
+      "con.numeric-density": {
+        "threshold": 0.1,
+        "params": {
+          "max_per_para": 5
+        }
+      },
+      "enc.abbr-gloss": {
+        "threshold": 0,
+        "params": {}
+      },
+      "enc.slug-alias": {
+        "threshold": 0,
+        "params": {
+          "min_len": 10
+        }
+      },
+      "enc.link-density": {
+        "threshold": 0.3,
+        "params": {}
+      },
+      "enc.first-mention": {
+        "threshold": 0,
+        "params": {}
+      }
+    },
+    "bundles": {
+      "scholarly-citation": {
+        "fn": "check_citations",
+        "params": {}
+      },
+      "encyclopedia-writing": {
+        "fn": "check_encyclopedia",
+        "params": {}
+      },
+      "journalism-writing": {
+        "fn": "check_journalism",
+        "params": {}
+      }
+    },
+    "roster": {
+      "required": [],
+      "optional": []
+    }
+  },
+  "contradiction-aggregate": {
+    "checks": {
+      "cit.grade-meta": {
+        "threshold": 2,
+        "params": {}
+      },
+      "cit.cite-type-meta": {
+        "threshold": 2,
+        "params": {}
+      },
+      "enc.link-density": {
+        "threshold": 0.3,
+        "params": {}
+      },
+      "enc.first-mention": {
+        "threshold": 0,
+        "params": {}
+      }
+    },
+    "bundles": {
+      "consulting-writing": {
+        "fn": "check_consulting",
+        "params": {}
+      },
+      "encyclopedia-writing": {
+        "fn": "check_encyclopedia",
+        "params": {}
+      },
+      "journalism-writing": {
+        "fn": "check_journalism",
+        "params": {}
+      }
+    },
+    "roster": {
+      "required": [],
+      "optional": []
+    }
+  }
+}

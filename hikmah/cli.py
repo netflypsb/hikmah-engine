@@ -56,10 +56,68 @@ def main():
         print("[hikmah] Manifest update — generating MANIFEST.json")
         _generate_manifest()
         
+    elif command == "rubric":
+        _run_rubric(args)
+        
     else:
         print(f"Unknown command: {command}")
         print(__doc__)
         sys.exit(1)
+
+def _run_rubric(args):
+    """Run Islamic scholarly rubric on wiki pages."""
+    from hikmah.rubric import lint_page
+    import os
+    
+    if not args:
+        print("[hikmah] Usage: python -m hikmah rubric <file> [--all]")
+        print("  Lint a single page:  python -m hikmah rubric wiki/quran-wiki/surah-001-al-fatihah.md")
+        print("  Lint all pages:      python -m hikmah rubric --all")
+        return
+    
+    if args[0] == "--all":
+        wiki_dir = os.path.join(os.getcwd(), "wiki")
+        if not os.path.isdir(wiki_dir):
+            print(f"[hikmah] No wiki/ directory found at {os.getcwd()}")
+            return
+        EXCLUDE = {'.git', '.ops', '.plans', '.tools', '.config', '.cache', '.stats', 'raw', 'node_modules', 'wiki-generated', 'presentations'}
+        total = 0
+        passed = 0
+        failed = 0
+        for root, dirs, files in os.walk(wiki_dir):
+            dirs[:] = [d for d in dirs if d not in EXCLUDE]
+            for f in files:
+                if f.endswith('.md'):
+                    total += 1
+                    file_path = os.path.join(root, f)
+                    try:
+                        results = lint_page(file_path)
+                        all_pass = all(r.passed for r in results)
+                        if all_pass:
+                            passed += 1
+                        else:
+                            failed += 1
+                            rel = os.path.relpath(file_path, os.getcwd())
+                            fails = [r.check_name for r in results if not r.passed]
+                            print(f"  FAIL: {rel} — {', '.join(fails)}")
+                    except Exception as e:
+                        failed += 1
+                        print(f"  ERROR: {file_path} — {e}")
+        print()
+        print(f"[hikmah] Rubric results: {total} pages, {passed} PASS, {failed} FAIL")
+    else:
+        file_path = args[0]
+        if not os.path.exists(file_path):
+            print(f"[hikmah] File not found: {file_path}")
+            return
+        results = lint_page(file_path)
+        print(f"[hikmah] Rubric: {file_path}")
+        for r in results:
+            status = 'PASS' if r.passed else 'FAIL'
+            print(f"  [{status}] {r.check_name}: {r.message}")
+            for d in r.details:
+                print(f"         {d}")
+
 
 def _generate_manifest():
     """Generate MANIFEST.json for the wiki content."""
