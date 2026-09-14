@@ -38,12 +38,22 @@ def main():
         
     elif command == "lint":
         from lint import main as lint_main
-        # lint.py uses its own arg parsing
-        lint_main(args)
+        # lint.py uses its own argparse; reconstruct sys.argv for it
+        old_argv = sys.argv
+        sys.argv = ["hikmah-lint"] + args
+        try:
+            lint_main()
+        finally:
+            sys.argv = old_argv
         
     elif command == "query":
         from query import main as query_main
-        query_main(args)
+        old_argv = sys.argv
+        sys.argv = ["hikmah-query"] + args
+        try:
+            query_main()
+        finally:
+            sys.argv = old_argv
         
     elif command == "cascade":
         print(f"[hikmah] Cascade: {args}")
@@ -51,7 +61,12 @@ def main():
         
     elif command == "discover":
         from discover import main as discover_main
-        discover_main(args)
+        old_argv = sys.argv
+        sys.argv = ["hikmah-discover"] + args
+        try:
+            discover_main()
+        finally:
+            sys.argv = old_argv
         
     elif command == "manifest":
         print("[hikmah] Manifest update — generating MANIFEST.json")
