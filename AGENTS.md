@@ -26,7 +26,9 @@ python -m hikmah graph                 # Rebuild knowledge graph + clusters
 python -m hikmah query <question>      # Search the wiki by graph traversal + BM25
 python -m hikmah cascade <page>        # Trigger cascading updates for a page
 python -m hikmah discover <seed>       # Find unexpected connections (Memex)
-python -m hikmah manifest               # Update MANIFEST.json processing audit trail
+python -m hikmah manifest               # Update MANIFEST.json
+python -m hikmah rubric <file>          # Islamic scholarly validation (single page)
+python -m hikmah rubric --all            # Islamic scholarly validation (all pages) processing audit trail
 ```
 
 ## Ingest Workflow
